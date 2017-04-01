@@ -1,5 +1,5 @@
 obj-m += dm-dedup.o
-
+PWD=/home/dear/code/dmdedup4.8.5
 dm-dedup-objs := dm-dedup-cbt.o dm-dedup-hash.o dm-dedup-ram.o  dm-dedup-rw.o dm-dedup-target.o
 
 EXTRA_CFLAGS := -Idrivers/md
