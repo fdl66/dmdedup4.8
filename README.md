@@ -9,8 +9,9 @@ Device-mapper's dedup target provides transparent data deduplication of block de
 指令参数
 ========
 
-	<meta_dev> <data_dev> <block_size>
-	<hash_algo> <backend> <flushrq>
+```
+	<meta_dev> <data_dev> <block_size> <hash_algo> <backend> <flushrq>
+```
 
 `<meta_dev>`
     元数据所在的设备。
@@ -56,8 +57,10 @@ http://www.fsl.cs.stonybrook.edu/docs/ols-dmdedup/dmdedup-ols14.pdf
 
 对于写入目标的每个块，dm-dedup使用`<hash_algo>`参数提供的算法来计算其哈希值。 然后，它在散列索引中查找生成的散列。 如果发现匹配，则写入被认为是重复的。
 
-Dm-Dedup的散列索引本质上是`散列`和`数据设备中块的物理地址`之间的映射（`LBN-PBN`）。 此外，dm-dedup维护目标上的逻辑块地址和数据设备上的物理块地址（LBN-PBN映射）之间的映射。 当检测到重复时，不需要将实际数据写入磁盘，只能更新LBN-PBN映射。
-除此，dm-dedup维护了`目标中的逻辑块地`址和`数据设备中的物理块地址`的映射。当检测到重复时，不需要将实际数据写入到磁盘，而只需要更新LBN-PBN映射。
+Dm-Dedup的散列索引本质上是`散列`和`数据设备中块的物理地址`之间的映射。 
+除此，dm-dedup维护了`目标上的逻辑块地址`址和`数据设备上的物理块地址`（LBN-PBN映射）的映射。
+
+当检测到重复时，不需要将实际数据写入到磁盘，而只需要更新LBN-PBN映射。
 检测到非重复的数据时，在数据设备上分配新的物理块并写入数据，向索引中添加相应的散列。
 在读取时，LBN-PBN映射允许在数据设备上快速定位所需的块。 如果以前没有写入LBN，则返回零块。
 
@@ -67,22 +70,27 @@ Dm-Dedup的散列索引本质上是`散列`和`数据设备中块的物理地址
 
 使用设备映射时，需要提前指定目标的大小。为了更好的效果，目标大小应该大于数据设备的大小（或者直接使用数据设备）。
 因为数据重删率不是预先知道的，所以必须使用估计。
+
 通常，低于1.5的数据重删率的估计是安全的。但是对于备份数据，这个值可能高达100.
 使用fs-hasher包来估计特定数据集的数据重删率是一个不错的起点。
 
-如果超估了重复数据删除率，数据设备可能会耗尽可用空间。 可以使用dmsetup status命令（如下所述）监视这种情况。 数据设备已满后，dm-dedup将停止接受写入，直到数据设备上的可用空间再次可用。
+如果超估了重复数据删除率，数据设备可能会耗尽可用空间。 可以使用dmsetup status命令（如下所述）监视这种情况。 
+数据设备已满后，dm-dedup将停止接受写入，直到数据设备上的可用空间再次可用。
 
 后端
 --------
 
-Dm-dedup的核心逻辑将索引和LDN-PBN映射当成具有外部API（drivers/md/dm-dedup-backend.h）的普通的键-值对
-不同的后端提供不同的键-值存储API。我们实现的个cowbtree后端使用设备映射的持久性元数据框架来永久存储元数据。框架和磁盘布局的详细信息请参考：
+Dm-dedup的核心逻辑将索引和LDN-PBN映射当成具有外部API（drivers/md/dm-dedup-backend.h）的普通的键-值对。
+不同的后端提供不同的键-值存储API。我们实现的个cowbtree后端使用设备映射的持久性元数据框架来永久存储元数据。
+框架和磁盘布局的详细信息请参考：
 
 > Documentation/device-mapper/persistent-data.txt
 
 通过使用持久性的 COW B-Trees，cowbtree后端保证了断电情形下的一致性。
 
-此外，我们还提供将所有元数据存储在RAM中的inram后端。线性探测的哈希表用于存储索引和LBN-PBN映射。Inram后端不会持久存储元数据，通常只能用于实验。
+此外，我们还提供将所有元数据存储在RAM中的inram后端。
+线性探测的哈希表用于存储索引和LBN-PBN映射。
+Inram后端不会持久存储元数据，通常只能用于实验。
 
 Dmsetup 状态
 ==============
