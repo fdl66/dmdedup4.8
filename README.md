@@ -144,7 +144,7 @@ Dm-dedup通过dmsetup status命令输出各种统计信息。由dmsetup状态返
 echo "0 $TARGET_SIZE dedup $META_DEV $DATA_DEV 4096 md5 cowbtree 100" | dmsetup create mydedup
 ```
 
-作者
+原作者
 =======
 dm-dedup由`纽约州立大学石溪分校`计算机科学系的文件系统和存储实验室（FSL）与哈维·泥德学院和EMC公司合作开发。
 
@@ -153,6 +153,7 @@ dm-dedup由`纽约州立大学石溪分校`计算机科学系的文件系统和�
 以下几名学生也帮助了该项目： Teo Asinari, Deepak Jain, Mandar Joshi, Atul Karmarkar, Meg O'Keefe, Gary Lent, Amar Mudrankit, Ujwala Tulshigiri, and Nabil Zaman.
 
 
-
+此项目说明
+========
 
 
