@@ -1,205 +1,154 @@
-dm-dedup
+# 在此处输入标题
+
+标签（空格分隔）： 未分类
+
+---
+
+简介
+====
+
+Device-mapper's dedup target provides transparent data deduplication of block devices. 
+每次对dm-dedup实例的写入都会根据之前的写入进行数据重删。对于包含了很多分散在磁盘上的重复数据集（如：虚拟机的磁盘镜像集体, 备份, 主目录服务器）数据重删节省了大量空间。
+
+指令参数
 ========
 
-Device-mapper's dedup target provides transparent data deduplication of block
-devices.  Every write coming to a dm-dedup instance is deduplicated against
-previously written data.  For datasets that contain many duplicates scattered
-across the disk (e.g., virtual machine disk image collections, backups, home
-directory servers) deduplication provides a significant amount of space
-savings.
-
-Construction Parameters
-=======================
 	<meta_dev> <data_dev> <block_size>
 	<hash_algo> <backend> <flushrq>
 
-<meta_dev>
-	This is the device where dm-dedup's metadata resides.  Metadata
-	typically includes hash index, block mapping, and reference counters.
-	It should be specified as a path, like "/dev/sdaX".
+`<meta_dev>`
+    元数据所在的设备。
+    元数据通常包括散列索引、块映射和引用计数器。这里应该指定一个路径，如"/dev/sdaX"
+    
+`<data_dev>`
+    存储实际数据的设备。
+    这里应该指定一个具体路径，如"/dev/sdaX"
 
-<data_dev>
-	This is the device where the actual data blocks are stored.
-	It should be specified as a path, like "/dev/sdaX".
+`<block_size>`
+    数据设备上单个块的大小。
+    块是进行重复数据删除和数据存储的单位。该参数范围在4096～1048576（1MB）之间，而且应该是2的幂次。
 
-<block_size>
-	This is the size of a single block on the data device in bytes.
-	Block is both a unit of deduplication and a unit of storage.
-	Supported values are between 4096 to 1048576 (1MB) and should be
-	a power of two.
+`<hash_algo>`
+    指定dm-dedup用来检测相同块的算法。如 md5、sha256. 
+    任何内核支持的算法都可以使用（参考 /proc/crypto 文件）
 
-<hash_algo>
-	This specifies which hashing algorithm dm-dedup will use for detecting
-	identical blocks, e.g., "md5" or "sha256". Any hash algorithm
-	supported by the running kernel can be used (see "/proc/crypto" file).
+`<backend>`
+    这是dm-dedup将用于存储元数据的后端。
+    目前支持的值是“cowbtree”和“inram”。
+	Cowbtree后端使用持久的Copy-on-Write(COW) B-Trees来存储元数据。
+	Inram后端将所以元数据存储在RAM中（重启会丢失）。所以，inram 通常用于实验环境。
+	注：虽然 inram 不使用元数据设备，但你依然应该在命令行中提供`<meta_dev>`参数
 
-<backend>
-	This is the backend that dm-dedup will use to store metadata.
-	Currently supported values are "cowbtree" and "inram".
-	Cowbtree backend uses persistent Copy-on-Write (COW) B-Trees to store
-	metadata. Inram backend stores all metadata in RAM which is
-	lost after a system reboot. Consequently, inram backend should
-	typically be used only for experiments. Notice, that though inram
-	backend does not use metadata device, <meta_dev> parameter
-	should still be specified in the command line.
+`<flushrq>`
+    此参数指定在dm-dedup将缓冲的元数据刷新到元数据设备之前，应对目标进行多少次写入。
+	In other words, in an event of power failure, one can loose up to this	number of most recent writes.  
+	注意：当在I/O请求中看到`REQ_FLUSH`或`REQ_FUA`标志时，dm-dedup也会刷新其元数据。特别地，这些标志由文件系统在适当的时间点设置，以确保文件系统的一致性。
+	在构建期间，dm-dedup检查元数据设备的前4096个字节是否等于零。 如果是，那么将初始化一个全新的dm-dedup实例（元数据设备和实际数据设备被认为是“Empty”）。如果这4096个起始字节不为零，dm-dedup将根据元数据和数据设备上的当前信息尝试重建目标。
 
-<flushrq>
-	This parameter specifies how many writes to the target should occur
-	before dm-dedup flushes its buffered metadata to the metadata device.
-	In other words, in an event of power failure, one can loose up to this
-	number of most recent writes.  Notice, that dm-dedup also flushes its
-	metadata when it sees REQ_FLUSH or REQ_FUA flags in the I/O requests.
-	In particular, these flags are set by file systems in the
-	appropriate points of time to ensure file system consistency.
 
-During construction, dm-dedup checks if the first 4096 bytes of the metadata
-device are equal to zero. If they are, then a completely new dm-dedup instance
-is initialized with the metadata and data devices considered "empty". If,
-however, 4096 starting bytes are not zero, dm-dedup will try to reconstruct
-the target based on the current information on the metadata and data devices.
+操作理论
+========
 
-Theory of Operation
-===================
-
-We provide an overview of dm-dedup design in this section. Detailed design and
-performance evaluation can be found in the following paper:
+本节提供了dm-dedup设计的概述。 详细的设计和性能评估可以在以下论文中找到：
 
 V. Tarasov and D. Jain and G. Kuenning and S. Mandal and K. Palanisami and P.
 Shilane and S. Trehan. Dmdedup: Device Mapper Target for Data Deduplication.
 Ottawa Linux Symposium, 2014.
 http://www.fsl.cs.stonybrook.edu/docs/ols-dmdedup/dmdedup-ols14.pdf
 
-To quickly identify duplicates, dm-dedup maintains an index of hashes for all
-written blocks.  Block is a user-configurable unit of deduplication and
-storage.  Dm-dedup index, along with other deduplication metadata, resides on
-a separate block device, which we refer to as metadata device. Blocks
-themselves are stored on the data device. Although the metadata device can be
-any block device, e.g., an HDD or its partition, for higher performance we
-recommend to use SSD devices to store metadata.
+为了快速识别重复项，dm-dedup为所有写入的块维护了一个散列索引。 “块”是用户可配置的进行重复数据删除和存储的单元。 Dm-dedup索引以及其他用来数据重删的元数据，存放在单独的块设备上，我们将这个块设备称为元数据设备。 实际的“块”存储在数据设备上。 虽然元数据设备可以是任何块设备，例如HDD或其分区，但是为了提高性能，我们建议使用SSD设备来存储元数据。
 
-For every block that is written to a target, dm-dedup computes its hash using
-the <hash_algo>. It then looks for the resulting hash in the hash index. If a
-match is found then the write is considered to be a duplicate.
+对于写入目标的每个块，dm-dedup使用`<hash_algo>`参数提供的算法来计算其哈希值。 然后，它在散列索引中查找生成的散列。 如果发现匹配，则写入被认为是重复的。
 
-Dm-dedup's hash index is essentially a mapping between the hash and the
-physical address of a block on the data device. In addition, dm-dedup
-maintains a mapping between logical block addresses on the target and physical
-block address on the data device (LBN-PBN mapping). When a duplicate is
-detected, there is no need to write actual data to the disk and only LBN-PBN
-mapping is updated.
+Dm-Dedup的散列索引本质上是`散列`和`数据设备中块的物理地址`之间的映射（`LBN-PBN`）。 此外，dm-dedup维护目标上的逻辑块地址和数据设备上的物理块地址（LBN-PBN映射）之间的映射。 当检测到重复时，不需要将实际数据写入磁盘，只能更新LBN-PBN映射。
+除此，dm-dedup维护了`目标中的逻辑块地`址和`数据设备中的物理块地址`的映射。当检测到重复时，不需要将实际数据写入到磁盘，而只需要更新LBN-PBN映射。
+检测到非重复的数据时，在数据设备上分配新的物理块并写入数据，向索引中添加相应的散列。
+在读取时，LBN-PBN映射允许在数据设备上快速定位所需的块。 如果以前没有写入LBN，则返回零块。
 
-When a non-duplicate data is written, new physical block on the data device is
-allocated, written, and a corresponding hash is added to the index.
 
-On read, LBN-PBN mapping allows to quickly locate a required block on the data
-device.  If there were no writes to an LBN before, a zero block is returned.
-
-Target Size
+目标大小
 -----------
 
-When using device-mapper one needs to specify target size in advance. To get
-deduplication benefits, target size should be larger than the data device size
-(or otherwise one could just use the data device directly).  Because dataset
-deduplication ratio is not known in advance one has to use an estimation.
+使用设备映射时，需要提前指定目标的大小。为了更好的效果，目标大小应该大于数据设备的大小（或者直接使用数据设备）。
+因为数据重删率不是预先知道的，所以必须使用估计。
+通常，低于1.5的数据重删率的估计是安全的。但是对于备份数据，这个值可能高达100.
+使用fs-hasher包来估计特定数据集的数据重删率是一个不错的起点。
 
-Usually, up to 1.5 deduplication ratio for a primary dataset is a safe
-assumption.  For backup datasets, however, deduplication ratio can be as high
-as 100.
+如果超估了重复数据删除率，数据设备可能会耗尽可用空间。 可以使用dmsetup status命令（如下所述）监视这种情况。 数据设备已满后，dm-dedup将停止接受写入，直到数据设备上的可用空间再次可用。
 
-Estimating deduplication ratio of an existing dataset using fs-hasher package
-from http://tracer.filesystems.org/ can give a good starting point for a
-specific dataset.
-
-If one over-estimates deduplication ratio, data device can run out of free
-space. This situation can be monitored using dmsetup status command (described
-below).  After data device is full, dm-dedup will stop accepting writes until
-free space becomes available on the data device again.
-
-Backends
+后端
 --------
 
-Dm-dedup's core logic considers index and LBN-PBN mappings as plain key-value
-stores with an extended API described in
+Dm-dedup的核心逻辑将索引和LDN-PBN映射当成具有外部API（drivers/md/dm-dedup-backend.h）的普通的键-值对
+不同的后端提供不同的键-值存储API。我们实现的个cowbtree后端使用设备映射的持久性元数据框架来永久存储元数据。框架和磁盘布局的详细信息请参考：
 
-drivers/md/dm-dedup-backend.h
+> Documentation/device-mapper/persistent-data.txt
 
-Different backends can provided key-value store API. We implemented a cowbtree
-backend that uses device-mapper's persistent metadata framework to
-consistently store metadata. Details on this framework and its on-disk layout
-can be found here:
+通过使用持久性的 COW B-Trees，cowbtree后端保证了断电情形下的一致性。
 
-Documentation/device-mapper/persistent-data.txt
+此外，我们还提供将所有元数据存储在RAM中的inram后端。线性探测的哈希表用于存储索引和LBN-PBN映射。Inram后端不会持久存储元数据，通常只能用于实验。
 
-By using persistent COW B-trees, cowbtree backend guarantees consistency in
-the event of power failure.
-
-In addition, we also provide inram backend that stores all metadata in RAM.
-Hash tables with linear probing are used for storing the index and LBN-PBN
-mapping. Inram backend does not store metadata persistently and should usually
-by used only for experiments.
-
-Dmsetup Status
+Dmsetup 状态
 ==============
 
-Dm-dedup exports various statistics via dmsetup status command. The line
-returned by dmsetup status will contain the following values in the order:
+Dm-dedup通过dmsetup status命令输出各种统计信息。由dmsetup状态返回的行将按顺序包含以下值：
 
-<name> <start> <end> <type> \
-<dtotal> <dfree> <dused> <dactual> <dblock> <ddisk> <mddisk> \
-<writes><uniqwrites> <dupwrites> <readonwrites> <overwrites> <newwrites>
+```
+<name> <start> <end> <type> <dtotal> <dfree> <dused> <dactual> <dblock> <ddisk> <mddisk> <writes><uniqwrites> <dupwrites> <readonwrites> <overwrites> <newwrites>
+```
 
-<name>, <start>, <end>, and <type> are generic fields printed by dmsetup tool
-for any target.
+`<name>, <start>, <end>` 和 `<type>` 是dmsetup为任何目标都打印的通用字段。
 
-<dtotal>       - total number of blocks on the data device
-<dfree>        - number of free (unallocated) blocks on the data device
-<dused>        - number of used (allocated) blocks on the data device
-<dactual>      - number of allocated logical blocks (were written at least once)
-<dblock>       - block size in bytes
-<ddisk>        - data disk's major:minor
-<mddisk>       - metadata disk's major:minor
-<writes>       - total number of writes to the target
-<uniqwrites>   - the number of writes that weren't duplicates (were unique)
-<dupwrites>    - the number of writes that were duplicates
-<readonwrites> - the number of times dm-dedup had to read data from the data
-		 device because a write was misaligned (read-on-write effect)
-<overwrites>   - the number of writes to a logical block that was
-		 written before at least once
-<newwrites>    - the number of writes to a logical address that was not written
-		 before even once
+`<dtotal>`       - 数据设备上的所有块的数目
+`<dfree>`        - 数据设备上空闲（没有分配）的块数
+`<dused>`        - 数据设备上已使用（已分配）的块数
+`<dactual>`      - 分配的逻辑块（至少被写一次）数
+`<dblock>`       - 块大小，单位 bytes
+`<ddisk>`        - data disk's major:minor
+`<mddisk>`       - metadata disk's major:minor
+`<writes>`       - total number of writes to the target
+`<uniqwrites>`   - the number of writes that weren't duplicates (were unique)
+`<dupwrites>`    - the number of writes that were duplicates
+`<readonwrites>` - the number of times dm-dedup had to read data from the data device because a write was misaligned (read-on-write effect)
+`<overwrites>`   - the number of writes to a logical block that was written before at least once
+`<newwrites>`    - the number of writes to a logical address that was not written before even once
 
-To compute deduplication ratio one needs to device dactual by dused.
+为了计算重复数据删除率，我们需要通过dused来设置dactual。
 
-Example
+示例
 =======
 
-Decide on metadata and data devices:
-   # META_DEV=/dev/sdX
-   # DATA_DEV=/dev/sdY
+设置元数据设备和数据设备：
+```
+# META_DEV=/dev/sdX
+# DATA_DEV=/dev/sdY
+```
 
-Compute target size assuming 1.5 dedup ratio:
-   # DATA_DEV_SIZE=`blockdev --getsz $DATA_DEV`
-   # TARGET_SIZE=`expr $DATA_DEV_SIZE \* 15 / 10`
+计算目标大小，假设1.5的数据重删率：
+```
+# DATA_DEV_SIZE=`blockdev --getsz $DATA_DEV`
+# TARGET_SIZE=`expr $DATA_DEV_SIZE \* 15 / 10`
+```
 
-Reset metadata device:
-   # dd if=/dev/zero of=$META_DEV bs=4096 count=1
+重置元数据设备：
+```
+# dd if=/dev/zero of=$META_DEV bs=4096 count=1
+```
 
-Setup a target:
-	echo "0 $TARGET_SIZE dedup $META_DEV $DATA_DEV 4096 md5 cowbtree 100" |\
-				dmsetup create mydedup
+设置目标：
+```
+echo "0 $TARGET_SIZE dedup $META_DEV $DATA_DEV 4096 md5 cowbtree 100" | dmsetup create mydedup
+```
 
-Authors
+作者
 =======
+dm-dedup由`纽约州立大学石溪分校`计算机科学系的文件系统和存储实验室（FSL）与哈维·泥德学院和EMC公司合作开发。
 
-dm-dedup was developed in the File system and Storage Lab (FSL) at Stony
-Brook University Computer Science Department, in collaboration with Harvey
-Mudd College and EMC.
+参与该项目的主要人物有 Vasily Tarasov, Geoff Kuenning, Sonam Mandal, Karthikeyani Palanisami, Philip Shilane, Sagar Trehan, 和 Erez Zadok.
 
-Key people involved in the project were Vasily Tarasov, Geoff Kuenning,
-Sonam Mandal, Karthikeyani Palanisami, Philip Shilane, Sagar Trehan, and
-Erez Zadok.
+以下几名学生也帮助了该项目： Teo Asinari, Deepak Jain, Mandar Joshi, Atul Karmarkar, Meg O'Keefe, Gary Lent, Amar Mudrankit, Ujwala Tulshigiri, and Nabil Zaman.
 
-We also acknowledge the help of several students involved in the
-deduplication project: Teo Asinari, Deepak Jain, Mandar Joshi, Atul
-Karmarkar, Meg O'Keefe, Gary Lent, Amar Mudrankit, Ujwala Tulshigiri, and
-Nabil Zaman.
+
+
+
+
