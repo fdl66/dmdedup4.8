@@ -10,7 +10,7 @@ Device-mapper's dedup target provides transparent data deduplication of block de
 ========
 
 ```
-	<meta_dev> <data_dev> <block_size> <hash_algo> <backend> <flushrq>
+<meta_dev> <data_dev> <block_size> <hash_algo> <backend> <flushrq>
 ```
 
 `<meta_dev>`
