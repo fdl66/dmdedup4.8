@@ -154,7 +154,7 @@ static int __commit_transaction(struct metadata *md)
 		goto out_locked;
 
 	r = dm_tm_commit(md->tm, sblock);
-
+    //printk("commit_transaction!\n");
 out:
 	return r;
 

@@ -149,11 +149,13 @@ static int handle_write_no_hash(struct dedup_config *dc,
 
 	r = dc->kvs_lbn_pbn->kvs_lookup(dc->kvs_lbn_pbn, (void *)&lbn,
 			sizeof(lbn), (void *)&lbnpbn_value, &vsize);
+    //printk("handle write no hash looking lbn->pbn!\n");
 	if (r == 0) {
 		/* No LBN->PBN mapping entry */
 		dc->newwrites++;
 		r = write_to_new_block(dc, &pbn_new, bio, lbn);
-		if (r < 0)
+		//printk("write_to_new_block!no lbn->pbn mappings!no hash!\n");
+        if (r < 0)
 			goto out_write_new_block_1;
 
 		hashpbn_value.pbn = pbn_new;
@@ -189,6 +191,7 @@ out_1:
 	/* LBN->PBN mappings exist */
 	dc->overwrites++;
 	r = write_to_new_block(dc, &pbn_new, bio, lbn);
+	//printk("write_to_new_block! lbn->pbn mappings exist !no hash!\n");
 	if (r < 0)
 		goto out_write_new_block_2;
 
@@ -247,10 +250,11 @@ static int handle_write_with_hash(struct dedup_config *dc, struct bio *bio,
 	pbn_new = hashpbn_value.pbn;
 	r = dc->kvs_lbn_pbn->kvs_lookup(dc->kvs_lbn_pbn, (void *)&lbn,
 			sizeof(lbn), (void *)&lbnpbn_value, &vsize);
+    //printk("get lbnpbn_value!handle_write_with_hash!\n");
 	if (r == 0) {
 		/* No LBN->PBN mapping entry */
 		dc->newwrites++;
-
+        //printk("no find lbnpbn_mapping entry!\n");
 		r = dc->mdops->inc_refcount(dc->bmd, pbn_new);
 		if (r < 0)
 			goto out_inc_refcount_1;
@@ -283,6 +287,7 @@ out_1:
 		goto out_2;
 
 	/* LBN->PBN mapping entry exists */
+    //printk("find lbnpbn_mapping entry!\n");
 	dc->overwrites++;
 	pbn_old = lbnpbn_value.pbn;
 	if (pbn_new != pbn_old) {
@@ -347,6 +352,7 @@ static int handle_write(struct dedup_config *dc, struct bio *bio)
 	lbn = bio_lbn(dc, bio);
 
 	r = compute_hash_bio(dc->desc_table, bio, hash);
+    //printk("handle_write!\t%s\n",hash);
 	if (r)
 		return r;
 
@@ -378,7 +384,11 @@ static void process_bio(struct dedup_config *dc, struct bio *bio)
 {
 	int r;
 
-	if (bio->bi_opf & (REQ_PREFLUSH | REQ_FUA) && !bio_sectors(bio)) {
+
+    //printk("process_bio!\n");
+	
+        
+    if (bio->bi_opf & (REQ_PREFLUSH | REQ_FUA) && !bio_sectors(bio)) {
 		r = dc->mdops->flush_meta(dc->bmd);
 		if (r == 0)
 			dc->writes_after_flush = 0;
@@ -407,8 +417,18 @@ static void do_work(struct work_struct *ws)
 	struct bio *bio = (struct bio *)data->bio;
 
 	mempool_free(data, dc->dedup_work_pool);
-
+    //printk("do_work!\n");
 	process_bio(dc, bio);
+    uint64_t lbn;
+    lbn=bio_lbn(dc,bio);
+    switch (bio_data_dir(bio)) {
+        case READ:
+            printk("read\t");
+            break;
+        case WRITE:
+            printk("write\t");
+    }
+    printk("LBN: %llu\n",lbn);
 }
 
 static void dedup_defer_bio(struct dedup_config *dc, struct bio *bio)
