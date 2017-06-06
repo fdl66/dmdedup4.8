@@ -1,0 +1,6 @@
+[371524.858788] do_work!
+[371524.858789] process_bio!
+[371524.858815] handle_write!	bg\xffffffa9tžt[q
+[371524.858822] get lbnpbn_value!handle_write_with_hash!
+[371524.858823] no find lbnpbn_mapping entry!
+[371524.858841] do_work!

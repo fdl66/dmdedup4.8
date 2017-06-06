@@ -1,0 +1,8 @@
+[371653.858501] do_work!
+[371653.858503] process_bio!
+[371653.858537] handle_write!	b\xffffff9f\xffffffc5\xffffffeb
+                                                               \xffffffccJ\xffffffa7\xfffffff5
+                \xffffff85\xffffff95 %8
+[371653.858564] handle write no hash looking lbn->pbn!
+[371653.858790] write_to_new_block! lbn->pbn mappings exist !no hash!
+
