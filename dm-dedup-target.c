@@ -361,9 +361,12 @@ static int handle_write(struct dedup_config *dc, struct bio *bio)
 
 	if (r == 0)
 		r = handle_write_no_hash(dc, bio, lbn, hash);
-	else if (r > 0)
-		r = handle_write_with_hash(dc, bio, lbn, hash,
-					hashpbn_value);
+	else if (r > 0){
+        printk("PBN: %llu\n",hashpbn_value);
+        r = handle_write_with_hash(dc, bio, lbn, hash,
+                                   hashpbn_value);
+    }
+
 
 	if (r < 0)
 		return r;
@@ -421,14 +424,14 @@ static void do_work(struct work_struct *ws)
 	process_bio(dc, bio);
     uint64_t lbn;
     lbn=bio_lbn(dc,bio);
-    switch (bio_data_dir(bio)) {
-        case READ:
-            printk("read\t");
-            break;
-        case WRITE:
-            printk("write\t");
-    }
-    printk("LBN: %llu\n",lbn);
+//    switch (bio_data_dir(bio)) {
+//        case READ:
+//            printk("read\t");
+//            break;
+//        case WRITE:
+//            printk("write\t");
+//    }
+//    printk("LBN: %llu\n",lbn);
 }
 
 static void dedup_defer_bio(struct dedup_config *dc, struct bio *bio)
